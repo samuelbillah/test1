@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Osmosis Simulator — Temperature & Concentration Effects</title>
+<style>
+  :root{font-family:Inter,system-ui,Segoe UI,Roboto,Arial}
+  body{background:#0b1220;color:#e6eef8;margin:0;padding:18px;display:flex;flex-direction:column;gap:12px;align-items:center}
+  h1{margin:0;font-size:20px}
+  .app{display:flex;gap:18px;align-items:flex-start}
+  .sim{background:#071226;padding:14px;border-radius:10px;width:520px}
+  .panel{background:#071226;padding:12px;border-radius:8px;width:420px}
+  .row{display:flex;align-items:center;gap:8px;margin:8px 0}
+  label{width:180px;font-size:13px}
+  input[type=range]{flex:1}
+  .chambers{display:flex;gap:12px;align-items:end}
+  .chamber{width:200px;height:260px;background:linear-gradient(#06202f,#0b3b52);border-radius:8px;position:relative;overflow:hidden}
+  .water{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(#78d0ff,#3aa6e6);border-top-left-radius:8px;border-top-right-radius:8px;transition:height 0.12s linear}
+  .label{position:absolute;left:8px;top:8px;font-size:13px}
+  .controls{display:flex;justify-content:space-between;align-items:center;margin-top:10px}
+  button{padding:8px 10px;border-radius:8px;border:0;background:#2563eb;color:white;cursor:pointer}
+  canvas{background:#021018;border-radius:6px}
+  .small{font-size:13px;color:#9fb0c8}
+  .eq{background:#041424;padding:8px;border-radius:6px;margin-top:6px;font-size:13px}
+  .footer{font-size:12px;color:#9fb0c8;margin-top:8px}
+</style>
+</head>
+<body>
+  <h1>Osmosis — How Temperature & Concentration Gradient Affect Rate</h1>
+  <div class="app">
+    <div class="sim">
+      <div class="chambers">
+        <div class="chamber" id="leftChamber">
+          <div class="label">Left: <span id="leftConcLabel">0.10</span> mol/L</div>
+          <div class="water" id="leftWater" style="height:50%"></div>
+        </div>
+        <div class="chamber" id="rightChamber">
+          <div class="label">Right: <span id="rightConcLabel">0.40</span> mol/L</div>
+          <div class="water" id="rightWater" style="height:70%"></div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="small">Instantaneous rate: <strong id="instRate">0.00</strong> %vol/s</div>
+        <div><button id="startBtn">Start</button> <button id="pauseBtn">Pause</button> <button id="resetBtn">Reset</button></div>
+      </div>
+
+      <div style="margin-top:10px">
+        <canvas id="plot" width="520" height="160"></canvas>
+      </div>
+
+    </div>
+
+    <div class="panel">
+      <div class="row"><label>Left concentration (mol/L)</label><input id="leftRange" type="range" min="0" max="1" step="0.01" value="0.10"></div>
+      <div class="row"><label>Right concentration (mol/L)</label><input id="rightRange" type="range" min="0" max="1" step="0.01" value="0.40"></div>
+      <div class="row"><label>Temperature (°C)</label><input id="tempRange" type="range" min="5" max="60" step="1" value="20"></div>
+      <div class="row"><label>Membrane hydraulic perm. (Lp, arb.)</label><input id="LpRange" type="range" min="0.01" max="2.0" step="0.01" value="0.50"></div>
+
+      <div class="row"><label></label><div class="small">R (gas) used: 8.314 J·mol⁻¹·K⁻¹ — van 't Hoff: π = C·R·T (C in mol·m⁻³, T in K)</div></div>
+
+      <div class="eq">Computed: Osmotic pressure Δπ = <strong id="deltaPi">0.00</strong> Pa<br>Instantaneous flux J = Lp·Δπ (arb. scaled) → <strong id="Jval">0.000</strong></div>
+
+      <div style="margin-top:8px" class="small">Notes: This model uses the van 't Hoff approximation for dilute solutions (non-electrolytes). The hydraulic permeability Lp here is an adjustable parameter: higher Lp → faster water flow for same Δπ. Temperature affects Δπ (T in K) and is an input to the model.</div>
+
+      <div style="margin-top:10px" class="small">Export: <button id="exportBtn">Download CSV</button></div>
+
+    </div>
+  </div>
+
+  <div class="footer">Tip: Try increasing temperature and/or concentration difference and press Start — watch the plot (volume % vs time) and the instantaneous rate.</div>
+
+<script>
+// Constants
+const R = 8.314; // J/mol/K
+
+// State
+const S = {
+  leftC: 0.10, // mol/L
+  rightC: 0.40, // mol/L
+  leftVol: 50,  // percent
+  rightVol: 70, // percent
+  tempC: 20,    // °C
+  Lp: 0.5,      // arbitrary hydraulic permeability scaling
+  running: false,
+  lastTime: null,
+  t: 0
+};
+
+// DOM
+const leftRange = document.getElementById('leftRange');
+const rightRange = document.getElementById('rightRange');
+const tempRange = document.getElementById('tempRange');
+const LpRange = document.getElementById('LpRange');
+const leftConcLabel = document.getElementById('leftConcLabel');
+const rightConcLabel = document.getElementById('rightConcLabel');
+const leftWater = document.getElementById('leftWater');
+const rightWater = document.getElementById('rightWater');
+const deltaPiEl = document.getElementById('deltaPi');
+const JvalEl = document.getElementById('Jval');
+const instRateEl = document.getElementById('instRate');
+const startBtn = document.getElementById('startBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+const resetBtn = document.getElementById('resetBtn');
+const exportBtn = document.getElementById('exportBtn');
+
+// Plot
+const plot = document.getElementById('plot');
+const pctx = plot.getContext('2d');
+let history = []; // {t,leftVol,rightVol,J}
+
+function updateLabels(){
+  leftConcLabel.textContent = S.leftC.toFixed(2);
+  rightConcLabel.textContent = S.rightC.toFixed(2);
+  leftWater.style.height = S.leftVol + '%';
+  rightWater.style.height = S.rightVol + '%';
+}
+updateLabels();
+
+// Inputs
+leftRange.addEventListener('input', e=>{ S.leftC = parseFloat(e.target.value); updateLabels(); computeAndDisplay(); });
+rightRange.addEventListener('input', e=>{ S.rightC = parseFloat(e.target.value); updateLabels(); computeAndDisplay(); });
+tempRange.addEventListener('input', e=>{ S.tempC = parseFloat(e.target.value); computeAndDisplay(); });
+LpRange.addEventListener('input', e=>{ S.Lp = parseFloat(e.target.value); computeAndDisplay(); });
+
+startBtn.addEventListener('click', ()=>{ S.running = true; S.lastTime = performance.now(); });
+pauseBtn.addEventListener('click', ()=>{ S.running = false; S.lastTime = null; });
+resetBtn.addEventListener('click', ()=>{ S.running = false; S.leftVol = 50; S.rightVol = 70; S.t = 0; history = []; drawPlot(); updateLabels(); });
+
+exportBtn.addEventListener('click', ()=>{
+  let csv = 'time_s,leftVol_pct,rightVol_pct,instant_rate_pct_per_s\n';
+  history.forEach(row=>{ csv += `${row.t.toFixed(2)},${row.leftVol.toFixed(4)},${row.rightVol.toFixed(4)},${row.J.toFixed(6)}\n`; });
+  const blob = new Blob([csv], {type: 'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'osmosis_data.csv'; a.click(); URL.revokeObjectURL(url);
+});
+
+// Physics model
+function computeDeltaPi(){
+  // Convert mol/L to mol/m^3: *1000
+  const C_L = S.leftC * 1000;
+  const C_R = S.rightC * 1000;
+  const T_K = S.tempC + 273.15;
+  // van 't Hoff (approx): pi = C * R * T
+  const piL = C_L * R * T_K; // Pa
+  const piR = C_R * R * T_K;
+  const dPi = Math.abs(piR - piL);
+  const sign = (piR - piL) >= 0 ? 1 : -1; // sign: positive if right higher
+  return {dPi, sign};
+}
+
+function computeFlux(dPi){
+  // Flux J (volume per area per time) = Lp * dPi
+  // We'll convert to percent-volume/sec by scaling: scaleFactor
+  const scaleFactor = 1e-7; // chosen so flows look reasonable in %/s
+  const J = S.Lp * dPi * scaleFactor; // %vol per second (approx)
+  return J;
+}
+
+function computeAndDisplay(){
+  const {dPi, sign} = computeDeltaPi();
+  deltaPiEl.textContent = dPi.toFixed(2);
+  const J = computeFlux(dPi) * sign;
+  JvalEl.textContent = J.toFixed(6);
+  instRateEl.textContent = J.toFixed(4);
+  return {dPi, J};
+}
+computeAndDisplay();
+
+// Simulation step
+function step(dt){
+  // dt in seconds
+  const {dPi, sign} = computeDeltaPi();
+  const J = computeFlux(dPi) * sign; // % vol / s
+  // update volumes
+  S.leftVol -= J * dt;
+  S.rightVol += J * dt;
+  // clamp
+  S.leftVol = Math.max(2, Math.min(98, S.leftVol));
+  S.rightVol = Math.max(2, Math.min(98, S.rightVol));
+  S.t += dt;
+  history.push({t: S.t, leftVol: S.leftVol, rightVol: S.rightVol, J});
+  // keep history length reasonable
+  if(history.length > 5000) history.shift();
+}
+
+// Plotting simple time-series
+function drawPlot(){
+  pctx.clearRect(0,0,plot.width,plot.height);
+  // background grid
+  pctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  pctx.lineWidth = 1;
+  for(let i=0;i<5;i++){
+    pctx.beginPath(); pctx.moveTo(0, i*(plot.height/4)); pctx.lineTo(plot.width, i*(plot.height/4)); pctx.stroke();
+  }
+  // draw leftVol (top) in brighter line
+  if(history.length < 2) return;
+  const maxT = history[history.length-1].t;
+  const minT = Math.max(0, maxT - 30); // show last 30s
+  const data = history.filter(d => d.t >= minT);
+  function xFor(t){ return ((t - minT) / (Math.max(0.001, maxT - minT)))*plot.width; }
+  function yFor(v){ return plot.height - (v/100)*plot.height; }
+  // left
+  pctx.beginPath(); pctx.lineWidth = 2; pctx.strokeStyle = 'rgba(120,208,255,0.95)';
+  data.forEach((d,i)=>{ const x=xFor(d.t); const y=yFor(d.leftVol); if(i===0) pctx.moveTo(x,y); else pctx.lineTo(x,y); }); pctx.stroke();
+  // right
+  pctx.beginPath(); pctx.lineWidth = 2; pctx.strokeStyle = 'rgba(58,166,230,0.95)';
+  data.forEach((d,i)=>{ const x=xFor(d.t); const y=yFor(d.rightVol); if(i===0) pctx.moveTo(x,y); else pctx.lineTo(x,y); }); pctx.stroke();
+  // labels
+  pctx.fillStyle='rgba(255,255,255,0.8)'; pctx.font='12px Inter';
+  pctx.fillText('Volume % (left & right) — last 30s', 8, 14);
+}
+
+// Loop
+function loop(now){
+  if(!S.lastTime) S.lastTime = now;
+  const dt = Math.min(0.1, (now - S.lastTime)/1000);
+  S.lastTime = now;
+  if(S.running){ step(dt); }
+  updateLabels(); computeAndDisplay(); drawPlot();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>

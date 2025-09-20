@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Branches of Science Puzzle</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f8ff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+    h1 { margin-bottom: 10px; }
+    .score {
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 20px;
+      color: #333;
+    }
+    .container {
+      display: flex;
+      gap: 50px;
+      margin-bottom: 20px;
+    }
+    .category, .pieces {
+      border: 2px solid #444;
+      padding: 20px;
+      min-width: 220px;
+      min-height: 250px;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .category {
+      background: #e6f7ff;
+      font-weight: bold;
+    }
+    .piece {
+      padding: 6px;
+      margin: 5px;
+      border: 1px solid #666;
+      border-radius: 5px;
+      background: #fafafa;
+      cursor: grab;
+      font-size: 14px;
+    }
+    .correct { background: #a8f0a5 !important; cursor: default !important; }
+    .wrong { background: #f5a5a5 !important; cursor: not-allowed !important; }
+  </style>
+</head>
+<body>
+  <h1>Branches of Science Puzzle</h1>
+  <div class="score" id="score">Score: 0 / 30</div>
+  <div class="container">
+    <div class="category" data-branch="Zoology">Zoology</div>
+    <div class="category" data-branch="Microbiology">Microbiology</div>
+    <div class="category" data-branch="Botany">Botany</div>
+  </div>
+  <h2>Pieces</h2>
+  <div class="pieces" id="pieces"></div>
+
+  <script>
+    const items = [
+      // Zoology
+      { name: "Entomology (study of insects)", branch: "Zoology" },
+      { name: "Ichthyology (study of fishes)", branch: "Zoology" },
+      { name: "Ornithology (study of birds)", branch: "Zoology" },
+      { name: "Herpetology (study of reptiles & amphibians)", branch: "Zoology" },
+      { name: "Mammalogy (study of mammals)", branch: "Zoology" },
+      { name: "Parasitology (study of parasites)", branch: "Zoology" },
+      { name: "Anthropology (study of humans)", branch: "Zoology" },
+      { name: "Arachnology (study of spiders)", branch: "Zoology" },
+      { name: "Helminthology (study of worms)", branch: "Zoology" },
+      { name: "Malacology (study of mollusks)", branch: "Zoology" },
+
+      // Microbiology
+      { name: "Bacteriology (study of bacteria)", branch: "Microbiology" },
+      { name: "Virology (study of viruses)", branch: "Microbiology" },
+      { name: "Mycology (study of fungi)", branch: "Microbiology" },
+      { name: "Protozoology (study of protozoa)", branch: "Microbiology" },
+      { name: "Immunology (study of immune system)", branch: "Microbiology" },
+      { name: "Microbial Genetics", branch: "Microbiology" },
+      { name: "Industrial Microbiology", branch: "Microbiology" },
+      { name: "Medical Microbiology", branch: "Microbiology" },
+      { name: "Environmental Microbiology", branch: "Microbiology" },
+      { name: "Food Microbiology", branch: "Microbiology" },
+
+      // Botany
+      { name: "Bryology (study of mosses)", branch: "Botany" },
+      { name: "Phycology (study of algae)", branch: "Botany" },
+      { name: "Pteridology (study of ferns)", branch: "Botany" },
+      { name: "Dendrology (study of trees)", branch: "Botany" },
+      { name: "Plant Pathology (study of plant diseases)", branch: "Botany" },
+      { name: "Plant Physiology", branch: "Botany" },
+      { name: "Plant Anatomy", branch: "Botany" },
+      { name: "Ethnobotany (plants & culture)", branch: "Botany" },
+      { name: "Palynology (study of pollen)", branch: "Botany" },
+      { name: "Taxonomy (classification of plants)", branch: "Botany" }
+    ];
+
+    let score = 0;
+    const total = items.length;
+    const scoreDisplay = document.getElementById("score");
+
+    function updateScore() {
+      scoreDisplay.textContent = `Score: ${score} / ${total}`;
+    }
+
+    // Shuffle array
+    function shuffle(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+    }
+
+    const piecesContainer = document.getElementById("pieces");
+    shuffle(items);
+
+    // Create draggable pieces
+    items.forEach(item => {
+      const div = document.createElement("div");
+      div.textContent = item.name;
+      div.className = "piece";
+      div.draggable = true;
+      div.dataset.branch = item.branch;
+      piecesContainer.appendChild(div);
+    });
+
+    function makeDraggable(piece) {
+      piece.addEventListener("dragstart", e => {
+        e.dataTransfer.setData("branch", piece.dataset.branch);
+        e.dataTransfer.setData("id", piece.textContent);
+      });
+    }
+
+    document.querySelectorAll(".piece").forEach(makeDraggable);
+
+    document.querySelectorAll(".category").forEach(cat => {
+      cat.addEventListener("dragover", e => e.preventDefault());
+      cat.addEventListener("drop", e => {
+        e.preventDefault();
+        const branch = e.dataTransfer.getData("branch");
+        const text = e.dataTransfer.getData("id");
+
+        const originalPiece = [...document.querySelectorAll(".piece")]
+          .find(p => p.textContent === text);
+
+        if (originalPiece) {
+          originalPiece.remove();
+          originalPiece.draggable = false;
+
+          if (cat.dataset.branch === branch) {
+            originalPiece.classList.add("correct");
+            score++; // increase score for correct answer
+            updateScore();
+          } else {
+            originalPiece.classList.add("wrong");
+          }
+
+          cat.appendChild(originalPiece);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

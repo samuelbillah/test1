@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Orientation Sorting — Organism Views</title>
+<style>
+  :root{
+    --bg:#f3f6fb; --card:#ffffff; --muted:#6b7280;
+    --accent:#0ea5a6; --good:#a8f0a5; --bad:#f5a5a5; --border:#cbd5e1;
+  }
+  body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;background:var(--bg);color:#0f172a}
+  .wrap{max-width:1100px;margin:28px auto;padding:18px}
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  h1{font-size:20px;margin:0}
+  .controls{display:flex;gap:8px;align-items:center}
+  button{background:var(--accent);border:none;color:#022; padding:8px 12px;border-radius:8px;cursor:pointer;font-weight:600}
+  button.secondary{background:#fff;border:1px solid var(--border);color:var(--muted)}
+  .score{font-weight:700;color:var(--muted);margin-left:12px}
+  .layout{display:grid;grid-template-columns:360px 1fr;gap:16px;margin-top:16px}
+  .left, .right{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;box-shadow:0 6px 16px rgba(2,6,23,0.06)}
+  .pool{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;max-height:640px;overflow:auto;padding:6px}
+  .piece{background:#fff;border:1px solid #e6eef8;border-radius:8px;padding:8px;cursor:grab;display:flex;align-items:center;gap:8px;user-select:none}
+  .piece.locked{cursor:default;opacity:0.9}
+  .piece svg{width:110px;height:80px;flex:0 0 140px}
+  .meta{font-size:13px;color:var(--muted)}
+  .zones{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:12px}
+  .zone{min-height:140px;border:2px dashed var(--border);border-radius:10px;background:linear-gradient(180deg,#fff,#fbfdff);padding:8px;display:flex;flex-direction:column;align-items:center;gap:8px}
+  .zone h3{margin:4px 0 0;font-size:13px}
+  .zone .count{font-size:12px;color:var(--muted)}
+  .footer{margin-top:12px;font-size:13px;color:var(--muted)}
+  /* correct/wrong visual states for dropped pieces inside zones */
+  .dropped{width:100%;display:flex;align-items:center;gap:8px;padding:6px;border-radius:6px;margin:6px 0}
+  .dropped.correct{background:var(--good)}
+  .dropped.wrong{background:var(--bad)}
+  /* modal */
+  .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(2,6,23,0.45)}
+  .modal .box{background:var(--card);padding:20px;border-radius:12px;min-width:320px;text-align:center}
+  @media (max-width:980px){ .layout{grid-template-columns:1fr} .zones{grid-template-columns:repeat(2,1fr)} .piece svg{width:80px;height:60px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div style="display:flex;align-items:center;gap:12px">
+      <h1>Orientation Sorting — Identify Anterior / Posterior / Dorsal / Ventral / Lateral</h1>
+      <div class="score" id="score">Score: 0 / 20</div>
+    </div>
+    <div class="controls">
+      <button id="resetBtn" class="secondary">Reset</button>
+      <button id="showHelp" class="secondary">Help</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- left: pool -->
+    <section class="left">
+      <strong>Organism views (drag these to the correct orientation)</strong>
+      <div class="pool" id="pool" aria-live="polite" role="list"></div>
+      <div class="footer">Tip: Look for head vs tail, dorsal (back) vs ventral (belly), and side (lateral) clues like eyes, legs, or body curvature.</div>
+    </section>
+
+    <!-- right: drop zones -->
+    <section class="right">
+      <strong>Drop zones</strong>
+      <div class="zones" id="zones">
+        <div class="zone" data-orientation="anterior"><h3>Anterior (front)</h3><div class="count" data-count>0</div></div>
+        <div class="zone" data-orientation="posterior"><h3>Posterior (rear)</h3><div class="count" data-count>0</div></div>
+        <div class="zone" data-orientation="dorsal"><h3>Dorsal (back/top)</h3><div class="count" data-count>0</div></div>
+        <div class="zone" data-orientation="ventral"><h3>Ventral (belly/bottom)</h3><div class="count" data-count>0</div></div>
+        <div class="zone" data-orientation="lateral"><h3>Lateral (side)</h3><div class="count" data-count>0</div></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- final modal -->
+<div class="modal" id="modal">
+  <div class="box">
+    <h2 id="finalTitle">Well done!</h2>
+    <p id="finalText">You scored X / 20</p>
+    <div style="margin-top:12px;">
+      <button id="playAgain">Play again</button>
+    </div>
+  </div>
+</div>
+
+<!-- help modal content -->
+<div class="modal" id="helpModal" style="display:none">
+  <div class="box" style="max-width:700px;text-align:left">
+    <h3>How to use</h3>
+    <ul>
+      <li><strong>Anterior (front):</strong> the head end — look for eyes, mouth, antennae.</li>
+      <li><strong>Posterior (rear):</strong> the tail end − opposite the head.</li>
+      <li><strong>Dorsal (back/top):</strong> the back or upper surface of the animal.</li>
+      <li><strong>Ventral (belly/bottom):</strong> the belly or underside.</li>
+      <li><strong>Lateral (side):</strong> a side view showing eyes/legs, not head-on or top/bottom.</li>
+    </ul>
+    <div style="text-align:center;margin-top:12px">
+      <button id="closeHelp">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/*
+  Data model:
+  - organisms: fish, frog, worm, insect
+  - orientations: anterior, posterior, dorsal, ventral, lateral
+  For each organism/orientation we provide a clear SVG illustration (inline)
+  Items are shuffled and displayed in the pool.
+  Dropping logic moves the original piece into the zone and locks it; correct -> green, incorrect -> red.
+*/
+
+// Utility: shuffle
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
+
+// Build simple but clear SVG illustrations for each organism + orientation
+function makeSVG(organism, orientation){
+  // We'll create distinct diagrams using shapes and labels to cue students.
+  // Return a string of SVG markup.
+  if(organism==='fish'){
+    if(orientation==='lateral'){ // side view with head left
+      return `<svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="140" cy="90" rx="100" ry="45" fill="#6fb3d8" stroke="#2f86a6"/>
+        <polygon points="240,90 285,110 285,70" fill="#2f86a6"/>
+        <circle cx="90" cy="80" r="6" fill="#011" />
+        <text x="40" y="30" font-size="12" fill="#033">Lateral view (side) — head left</text>
+      </svg>`; }
+    if(orientation==='dorsal'){ // top view
+      return `<svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="150" cy="90" rx="120" ry="60" fill="#6fb3d8" stroke="#2f86a6"/>
+        <text x="50" y="30" font-size="12" fill="#033">Dorsal view (top) — back visible</text>
+      </svg>`; }
+    if(orientation==='ventral'){ // bottom view (belly)
+      return `<svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="150" cy="90" rx="120" ry="60" fill="#cfeaf7" stroke="#9bcfe6"/>
+        <text x="50" y="30" font-size="12" fill="#033">Ventral view (belly) — underside</text>
+      </svg>`; }
+    if(orientation==='anterior'){ // head-on
+      return `<svg viewBox="0 0 200 180" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="100" cy="90" rx="60" ry="40" fill="#6fb3d8" stroke="#2f86a6"/>
+        <circle cx="80" cy="80" r="6" fill="#011"/><circle cx="120" cy="80" r="6" fill="#011"/>
+        <text x="30" y="30" font-size="12" fill="#033">Anterior (front) — head on</text>
+      </svg>`; }
+    if(orientation==='posterior'){ // tail-on
+      return `<svg viewBox="0 0 200 180" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="60,40 140,40 140,140 60,140" fill="#6fb3d8" stroke="#2f86a6"/>
+        <polygon points="30,80 60,40 60,140" fill="#2f86a6"/>
+        <text x="25" y="30" font-size="12" fill="#033">Posterior (rear) — tail view</text>
+      </svg>`; }
+  }
+
+  if(organism==='frog'){
+    if(orientation==='lateral'){
+      return `<svg viewBox="0 0 300 160" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="130" cy="100" rx="80" ry="40" fill="#7bd389" stroke="#3d9a5f"/>
+        <circle cx="90" cy="70" r="8" fill="#fff" /><circle cx="90" cy="70" r="3" fill="#011"/>
+        <rect x="190" y="110" width="40" height="14" rx="6" fill="#3d9a5f"/>
+        <text x="20" y="30" font-size="12" fill="#033">Lateral — side shows eyes & legs</text>
+      </svg>`; }
+    if(orientation==='dorsal'){
+      return `<svg viewBox="0 0 300 160" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="150" cy="80" rx="100" ry="55" fill="#7bd389" stroke="#3d9a5f"/>
+        <circle cx="100" cy="55" r="8" fill="#fff" /><circle cx="200" cy="55" r="8" fill="#fff"/>
+        <text x="40" y="30" font-size="12" fill="#033">Dorsal — top view (back & eyes)</text>
+      </svg>`; }
+    if(orientation==='ventral'){
+      return `<svg viewBox="0 0 300 160" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="150" cy="80" rx="100" ry="55" fill="#dff7e7" stroke="#bfe7cf"/>
+        <text x="60" y="30" font-size="12" fill="#033">Ventral — belly view (underside)</text>
+      </svg>`; }
+    if(orientation==='anterior'){
+      return `<svg viewBox="0 0 200 160" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="100" cy="70" r="40" fill="#7bd389" stroke="#3d9a5f"/>
+        <circle cx="80" cy="60" r="8" fill="#fff"/><circle cx="120" cy="60" r="8" fill="#fff"/>
+        <text x="30" y="30" font-size="12" fill="#033">Anterior — head/front view</text>
+      </svg>`; }
+    if(orientation==='posterior'){
+      return `<svg viewBox="0 0 200 160" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="100" cy="90" rx="40" ry="18" fill="#7bd389" stroke="#3d9a5f"/>
+        <text x="20" y="30" font-size="12" fill="#033">Posterior — rear end</text>
+      </svg>`; }
+  }
+
+  if(organism==='worm'){
+    if(orientation==='lateral'){
+      return `<svg viewBox="0 0 300 120" xmlns="http://www.w3.org/2000/svg">
+        <rect x="10" y="40" rx="20" ry="20" width="260" height="40" fill="#c0845a" stroke="#8b5a3b"/>
+        <circle cx="50" cy="60" r="6" fill="#6b2f1f"/>
+        <text x="20" y="20" font-size="12" fill="#033">Lateral — side shows elongated segments</text>
+      </svg>`; }
+    if(orientation==='dorsal'){
+      return `<svg viewBox="0 0 300 120" xmlns="http://www.w3.org/2000/svg">
+        <rect x="10" y="40" rx="22" ry="22" width="260" height="40" fill="#b56f4a" stroke="#8b5a3b"/>
+        <text x="20" y="20" font-size="12" fill="#033">Dorsal — top of worm</text>
+      </svg>`; }
+    if(orientation==='ventral'){
+      return `<svg viewBox="0 0 300 120" xmlns="http://www.w3.org/2000/svg">
+        <rect x="10" y="40" rx="22" ry="22" width="260" height="40" fill="#f0c9b0" stroke="#d5a58a"/>
+        <text x="20" y="20" font-size="12" fill="#033">Ventral — underside (belly)</text>
+      </svg>`; }
+    if(orientation==='anterior'){
+      return `<svg viewBox="0 0 130 120" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="65" cy="60" rx="36" ry="30" fill="#c0845a" stroke="#8b5a3b"/>
+        <text x="10" y="20" font-size="12" fill="#033">Anterior — head end</text>
+      </svg>`; }
+    if(orientation==='posterior'){
+      return `<svg viewBox="0 0 130 120" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="65" cy="60" rx="20" ry="14" fill="#c0845a" stroke="#8b5a3b"/>
+        <text x="10" y="20" font-size="12" fill="#033">Posterior — tail end</text>
+      </svg>`; }
+  }
+
+  if(organism==='insect'){
+    if(orientation==='lateral'){
+      return `<svg viewBox="0 0 320 140" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="120" cy="70" rx="70" ry="36" fill="#e2c86b" stroke="#b68f3d"/>
+        <rect x="180" y="40" width="70" height="20" rx="6" fill="#d9b85a"/>
+        <circle cx="80" cy="55" r="6" fill="#011"/>
+        <text x="20" y="20" font-size="12" fill="#033">Lateral — side with legs/antennae</text>
+      </svg>`; }
+    if(orientation==='dorsal'){
+      return `<svg viewBox="0 0 320 140" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="160" cy="70" rx="110" ry="48" fill="#e2c86b" stroke="#b68f3d"/>
+        <line x1="160" y1="20" x2="160" y2="120" stroke="#b68f3d" stroke-width="2"/>
+        <text x="60" y="20" font-size="12" fill="#033">Dorsal — top (wings/backs)</text>
+      </svg>`; }
+    if(orientation==='ventral'){
+      return `<svg viewBox="0 0 320 140" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="160" cy="70" rx="110" ry="48" fill="#fff4d6" stroke="#e6d5a8"/>
+        <text x="60" y="20" font-size="12" fill="#033">Ventral — underside (legs/belly)</text>
+      </svg>`; }
+    if(orientation==='anterior'){
+      return `<svg viewBox="0 0 180 140" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="90" cy="70" r="40" fill="#e2c86b" stroke="#b68f3d"/>
+        <circle cx="75" cy="60" r="6" fill="#011"/><circle cx="105" cy="60" r="6" fill="#011"/>
+        <text x="30" y="20" font-size="12" fill="#033">Anterior — head-on (eyes/antennae)</text>
+      </svg>`; }
+    if(orientation==='posterior'){
+      return `<svg viewBox="0 0 180 140" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="90" cy="90" rx="30" ry="18" fill="#e2c86b" stroke="#b68f3d"/>
+        <text x="30" y="20" font-size="12" fill="#033">Posterior — rear end</text>
+      </svg>`; }
+  }
+
+  // fallback
+  return `<svg viewBox="0 0 200 80" xmlns="http://www.w3.org/2000/svg"><rect width="200" height="80" fill="#ddd" /><text x="10" y="40">${organism} ${orientation}</text></svg>`;
+}
+
+// Create the 20 items (4 organisms x 5 orientations)
+const organisms = ['fish','frog','worm','insect'];
+const orientations = ['anterior','posterior','dorsal','ventral','lateral'];
+let items = [];
+let idCounter = 1;
+for(const org of organisms){
+  for(const o of orientations){
+    items.push({
+      id: 'item'+(idCounter++),
+      organism: org,
+      orientation: o,
+      label: `${org[0].toUpperCase()+org.slice(1)} — ${o}`,
+      svg: makeSVG(org,o)
+    });
+  }
+}
+
+// shuffle
+items = shuffle(items);
+
+// DOM references
+const pool = document.getElementById('pool');
+const zones = document.querySelectorAll('.zone');
+const scoreEl = document.getElementById('score');
+const modal = document.getElementById('modal');
+const finalText = document.getElementById('finalText');
+const finalTitle = document.getElementById('finalTitle');
+const resetBtn = document.getElementById('resetBtn');
+const showHelp = document.getElementById('showHelp');
+const helpModal = document.getElementById('helpModal');
+const closeHelp = document.getElementById('closeHelp');
+const playAgain = document.getElementById('playAgain');
+
+let score = 0;
+const total = items.length;
+updateScore();
+
+// build pool pieces
+function createPool(){
+  pool.innerHTML = '';
+  items.forEach(it=>{
+    const div = document.createElement('div');
+    div.className = 'piece';
+    div.draggable = true;
+    div.id = it.id;
+    div.dataset.orientation = it.orientation;
+    div.innerHTML = `<div class="svgArea">${it.svg}</div><div class="meta"><div style="font-weight:700">${it.label}</div><div class="desc" style="color:var(--muted);font-size:12px">${it.organism}</div></div>`;
+    pool.appendChild(div);
+    makeDraggable(div);
+  });
+}
+
+// draggable handlers
+function makeDraggable(el){
+  el.addEventListener('dragstart', e=>{
+    if(el.classList.contains('locked')) { e.preventDefault(); return; }
+    e.dataTransfer.setData('text/plain', el.id);
+    // small effect
+  });
+}
+
+// zone handlers
+zones.forEach(zone=>{
+  zone.addEventListener('dragover', e=> e.preventDefault());
+  zone.addEventListener('drop', e=>{
+    e.preventDefault();
+    const id = e.dataTransfer.getData('text/plain');
+    if(!id) return;
+    const piece = document.getElementById(id);
+    if(!piece) return;
+
+    // if already locked, ignore
+    if(piece.classList.contains('locked')) return;
+
+    // remove from pool (original element)
+    piece.remove();
+
+    // check correctness
+    const expected = piece.dataset.orientation;
+    const target = zone.dataset.orientation;
+    const correct = (expected === target);
+
+    // lock piece
+    piece.classList.add('locked');
+
+    // create dropped representation inside zone
+    const wrap = document.createElement('div');
+    wrap.className = 'dropped ' + (correct ? 'correct' : 'wrong');
+    wrap.innerHTML = `<div style="width:110px;height:80px;flex:0 0 120px">${piece.querySelector('svg') ? piece.querySelector('svg').outerHTML : piece.querySelector('.svgArea').innerHTML}</div>
+                      <div style="flex:1;text-align:left"><div style="font-weight:700">${piece.querySelector('.meta div').innerText}</div><div style="font-size:12px;color:var(--muted)">${piece.querySelector('.desc').innerText}</div></div>`;
+
+    zone.appendChild(wrap);
+
+    // update count for zone
+    const c = zone.querySelector('[data-count]');
+    c.textContent = parseInt(c.textContent || '0',10) + 1;
+
+    // if correct, increase score
+    if(correct){ score++; updateScore(); }
+
+    // once incorrect, don't allow move (locked) - already enforced by removing draggable and not adding re-draggable element
+    // check finished
+    checkFinish();
+  });
+});
+
+// score updater
+function updateScore(){
+  scoreEl.textContent = `Score: ${score} / ${total}`;
+}
+
+// check finished
+function checkFinish(){
+  // placed count = total - items remaining in pool
+  const remaining = pool.querySelectorAll('.piece').length;
+  if(remaining === 0){
+    // show modal with results
+    finalTitle.textContent = (score === total) ? 'Perfect! 🎉' : (score >= total*0.7 ? 'Well done!' : 'Good try!');
+    finalText.textContent = `You scored ${score} out of ${total}.`;
+    modal.style.display = 'flex';
+  }
+}
+
+// reset logic
+function resetAll(){
+  score = 0;
+  updateScore();
+  // reset zone counts and content
+  zones.forEach(z=>{
+    z.querySelector('[data-count]').textContent = '0';
+    // remove all dropped children (keep heading)
+    Array.from(z.querySelectorAll('.dropped')).forEach(n=>n.remove());
+  });
+  // rebuild pool (recreate items and shuffle)
+  items = shuffle(items.map(i=>i)); // shuffle current items array reference (they may already have been mutated)
+  createPool();
+  modal.style.display = 'none';
+}
+
+// initial build
+createPool();
+
+// modal controls
+playAgain.addEventListener('click', ()=>{ resetAll(); });
+resetBtn.addEventListener('click', ()=>{ resetAll(); });
+
+// help modal
+showHelp.addEventListener('click', ()=>{ helpModal.style.display = 'flex'; helpModal.style.opacity = 1; });
+closeHelp && closeHelp.addEventListener('click', ()=>{ helpModal.style.display = 'none'; });
+
+// clicking outside modal closes it
+modal.addEventListener('click', (e)=>{ if(e.target===modal) modal.style.display='none'; });
+helpModal.addEventListener('click', (e)=>{ if(e.target===helpModal) helpModal.style.display='none'; });
+
+</script>
+</body>
+</html>

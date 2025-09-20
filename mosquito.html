@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mosquito Breeding-Site Ecology Simulator</title>
+  <style>
+    :root{--bg:#0f1724;--card:#071226;--muted:#9fb0c8;--accent:#22c55e;--accent2:#60a5fa;--danger:#ef4444;--glass: rgba(255,255,255,0.04);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial}
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,var(--bg),#061019);color:#e6eef8;padding:20px;display:flex;flex-direction:column;gap:12px;align-items:center}
+    h1{margin:0;font-size:20px}
+    .app{width:100%;max-width:1100px;display:grid;grid-template-columns:1fr 380px;gap:18px}
+    .card{background:var(--card);border-radius:12px;padding:16px;box-shadow:0 6px 20px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.03)}
+    .controls{display:flex;flex-direction:column;gap:12px}
+    .row{display:flex;align-items:center;gap:10px}
+    label{width:160px;font-size:13px;color:var(--muted)}
+    input[type=range]{flex:1}
+    .small{font-size:13px;color:var(--muted)}
+    .stats{display:flex;gap:8px;align-items:center}
+    .stat{background:var(--glass);padding:8px;border-radius:8px;min-width:96px;text-align:center}
+    .big-num{font-size:18px;font-weight:700}
+    .buttons{display:flex;gap:8px}
+    button{background:linear-gradient(180deg,var(--accent2),#3b82f6);border:0;padding:8px 12px;border-radius:10px;color:white;cursor:pointer}
+    button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06)}
+    button.warn{background:linear-gradient(180deg,#f97316,#ef4444)}
+    .viz{display:flex;flex-direction:column;gap:12px}
+    .bars{display:flex;gap:10px;align-items:end;height:220px;padding:12px;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));border-radius:8px}
+    .bar{flex:1;background:linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));border-radius:8px;padding:8px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:8px}
+    .bar-rect{width:60%;border-radius:6px;background:linear-gradient(180deg,#60a5fa,#3b82f6);transition:height 0.14s linear}
+    .bar-label{font-size:13px;color:var(--muted)}
+    canvas.chart{width:100%;height:160px;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));border-radius:8px}
+    .footer{font-size:13px;color:var(--muted);text-align:center;margin-top:6px}
+    .top-row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+    .legend{display:flex;gap:8px;align-items:center}
+    .legend .dot{width:10px;height:10px;border-radius:50%}
+    /* responsive */
+    @media (max-width:980px){.app{grid-template-columns:1fr;}}
+  </style>
+</head>
+<body>
+  <h1>Mosquito Breeding-Site Ecology Simulator</h1>
+  <div class="app">
+    <div class="card">
+      <div class="top-row">
+        <div>
+          <div class="small">Interactive simulator showing how breeding-site availability affects mosquito population</div>
+          <div style="font-weight:700;margin-top:6px">Stages: Eggs → Larvae → Pupae → Adults</div>
+        </div>
+        <div class="buttons">
+          <button id="startBtn">Start</button>
+          <button class="ghost" id="pauseBtn">Pause</button>
+          <button class="ghost" id="resetBtn">Reset</button>
+        </div>
+      </div>
+
+      <div style="height:12px"></div>
+
+      <div class="viz">
+        <div class="bars" aria-hidden="true">
+          <div class="bar">
+            <div class="bar-rect" id="egBar" style="height:12%"></div>
+            <div class="bar-label">Eggs<br><span id="egVal" class="small">0</span></div>
+          </div>
+          <div class="bar">
+            <div class="bar-rect" id="larvBar" style="height:8%;background:linear-gradient(180deg,#86efac,#22c55e)"></div>
+            <div class="bar-label">Larvae<br><span id="larvVal" class="small">0</span></div>
+          </div>
+          <div class="bar">
+            <div class="bar-rect" id="pupBar" style="height:6%;background:linear-gradient(180deg,#ffd166,#f59e0b)"></div>
+            <div class="bar-label">Pupae<br><span id="pupVal" class="small">0</span></div>
+          </div>
+          <div class="bar">
+            <div class="bar-rect" id="adBar" style="height:4%;background:linear-gradient(180deg,#a78bfa,#7c3aed)"></div>
+            <div class="bar-label">Adults<br><span id="adVal" class="small">0</span></div>
+          </div>
+        </div>
+
+        <canvas id="chart" class="chart" width="640" height="160"></canvas>
+
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="legend">
+            <div class="dot" style="background:#3b82f6"></div><div class="small">Adults (live)</div>
+            <div style="width:12px"></div>
+            <div class="dot" style="background:#22c55e"></div><div class="small">Larvae (resource-limited)</div>
+          </div>
+
+          <div class="stats">
+            <div class="stat"><div class="small">Breeding sites</div><div id="siteCount" class="big-num">50</div></div>
+            <div class="stat"><div class="small">Carrying cap. per site</div><div id="capPerSite" class="big-num">50</div></div>
+            <div class="stat"><div class="small">Current time (days)</div><div id="timeDay" class="big-num">0</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="card">
+      <div style="font-weight:700">Controls & Parameters</div>
+      <div style="height:8px"></div>
+      <div class="controls">
+        <div class="row"><label>Number of breeding sites</label><input id="sitesRange" type="range" min="0" max="200" step="1" value="50"></div>
+        <div class="row"><label>Carrying capacity per site</label><input id="capRange" type="range" min="5" max="200" step="1" value="50"></div>
+        <div class="row"><label>Rainfall events (toggle)</label><input id="rainToggle" type="checkbox"></div>
+        <div class="row"><label>Rainfall intensity</label><input id="rainIntRange" type="range" min="1" max="50" step="1" value="10"></div>
+        <div class="row"><label>Site removal per event</label><input id="removeRange" type="range" min="0" max="100" step="1" value="20"></div>
+        <div class="row"><label>Larval baseline mortality (%)</label><input id="larvMortRange" type="range" min="0" max="50" step="1" value="8"></div>
+        <div class="row"><label>Adult daily mortality (%)</label><input id="adultMortRange" type="range" min="0" max="50" step="1" value="12"></div>
+        <div class="row"><label></label><div class="small">Tip: Toggle rainfall to create new breeding sites periodically. Use reset to start over.</div></div>
+
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button id="addSitesBtn" class="ghost">Add sites now</button>
+          <button id="removeSitesBtn" class="warn">Community clean-up</button>
+          <button id="exportBtn">Download CSV</button>
+        </div>
+      </div>
+
+      <div style="height:10px"></div>
+      <div class="small">Model notes: This is a stochastic-ish stage-structured toy model where larval survival is limited by total carrying capacity (sites×capacity). It's designed for teaching intuition, not precise field prediction.</div>
+    </div>
+  </div>
+
+  <div class="footer">Copy the HTML into a file (e.g., <code>mosquito-breeding-sim.html</code>) and open it in a modern browser. Ask me to tweak visuals, parameters, or export formats.</div>
+
+<script>
+// --- State and parameters ---
+const state = {
+  sites: 50,
+  capPerSite: 50, // larvae carrying capacity per site
+  larvaeMortPct: 0.08, // daily fraction
+  adultMortPct: 0.12,  // daily fraction
+  eggs: 800, larvae: 300, pupae: 120, adults: 80,
+  t: 0, running: false,
+  history: [], // {t, eggs, larvae, pupae, adults}
+  rainOn: false,
+  rainIntensity: 10,
+  removePercent: 0.2
+};
+
+// DOM refs
+const sitesRange = document.getElementById('sitesRange');
+const capRange = document.getElementById('capRange');
+const rainToggle = document.getElementById('rainToggle');
+const rainIntRange = document.getElementById('rainIntRange');
+const removeRange = document.getElementById('removeRange');
+const larvMortRange = document.getElementById('larvMortRange');
+const adultMortRange = document.getElementById('adultMortRange');
+const startBtn = document.getElementById('startBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+const resetBtn = document.getElementById('resetBtn');
+const addSitesBtn = document.getElementById('addSitesBtn');
+const removeSitesBtn = document.getElementById('removeSitesBtn');
+const exportBtn = document.getElementById('exportBtn');
+
+const egBar = document.getElementById('egBar');
+const larvBar = document.getElementById('larvBar');
+const pupBar = document.getElementById('pupBar');
+const adBar = document.getElementById('adBar');
+const egVal = document.getElementById('egVal');
+const larvVal = document.getElementById('larvVal');
+const pupVal = document.getElementById('pupVal');
+const adVal = document.getElementById('adVal');
+const siteCount = document.getElementById('siteCount');
+const capPerSite = document.getElementById('capPerSite');
+const timeDay = document.getElementById('timeDay');
+
+const chart = document.getElementById('chart');
+const ctx = chart.getContext('2d');
+
+// initialize UI
+sitesRange.value = state.sites; capRange.value = state.capPerSite; rainToggle.checked = state.rainOn; rainIntRange.value = state.rainIntensity;
+removeRange.value = state.removePercent*100; larvMortRange.value = state.larvaeMortPct*100; adultMortRange.value = state.adultMortPct*100;
+siteCount.textContent = state.sites; capPerSite.textContent = state.capPerSite; timeDay.textContent = Math.floor(state.t);
+
+function updateBars(){
+  // scale bars to reasonable visible heights (relative to an arbitrary max)
+  const maxDisplay = Math.max(state.eggs, state.larvae, state.pupae, state.adults, state.sites*state.capPerSite, 1000);
+  function pct(n){ return Math.max(4, Math.min(96, (n/maxDisplay)*96)); }
+  egBar.style.height = pct(state.eggs)+'%'; egVal.textContent = Math.round(state.eggs);
+  larvBar.style.height = pct(state.larvae)+'%'; larvVal.textContent = Math.round(state.larvae);
+  pupBar.style.height = pct(state.pupae)+'%'; pupVal.textContent = Math.round(state.pupae);
+  adBar.style.height = pct(state.adults)+'%'; adVal.textContent = Math.round(state.adults);
+  siteCount.textContent = state.sites; capPerSite.textContent = state.capPerSite;
+  timeDay.textContent = Math.floor(state.t);
+}
+updateBars();
+
+// UI listeners
+sitesRange.addEventListener('input', e=>{ state.sites = parseInt(e.target.value); siteCount.textContent = state.sites; });
+capRange.addEventListener('input', e=>{ state.capPerSite = parseInt(e.target.value); capPerSite.textContent = state.capPerSite; });
+rainToggle.addEventListener('change', e=>{ state.rainOn = e.target.checked; });
+rainIntRange.addEventListener('input', e=>{ state.rainIntensity = parseInt(e.target.value); });
+removeRange.addEventListener('input', e=>{ state.removePercent = parseInt(e.target.value)/100; });
+larvMortRange.addEventListener('input', e=>{ state.larvaeMortPct = parseInt(e.target.value)/100; });
+adultMortRange.addEventListener('input', e=>{ state.adultMortPct = parseInt(e.target.value)/100; });
+
+startBtn.addEventListener('click', ()=>{ state.running = true; lastAnimation = performance.now(); });
+pauseBtn.addEventListener('click', ()=>{ state.running = false; });
+resetBtn.addEventListener('click', ()=>{ state.running = false; state.eggs = 800; state.larvae = 300; state.pupae = 120; state.adults = 80; state.t = 0; state.history = []; updateBars(); drawChart(); });
+addSitesBtn.addEventListener('click', ()=>{ state.sites += state.rainIntensity; sitesRange.value = state.sites; siteCount.textContent = state.sites; });
+removeSitesBtn.addEventListener('click', ()=>{ const rem = Math.floor(state.sites * state.removePercent); state.sites = Math.max(0, state.sites - rem); sitesRange.value = state.sites; siteCount.textContent = state.sites; });
+exportBtn.addEventListener('click', ()=>{ let csv = 'day,eggs,larvae,pupae,adults,sites\n'; state.history.forEach(r=>{ csv += `${r.t.toFixed(2)},${r.eggs},${r.larvae},${r.pupae},${r.adults},${r.sites}\n`; }); const blob = new Blob([csv], {type:'text/csv'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'mosquito_breeding_data.csv'; a.click(); URL.revokeObjectURL(url); });
+
+// model parameters
+const params = {
+  eggToLarvaRate: 0.25, // fraction per day
+  larvaToPupaRate: 0.10,
+  pupaToAdultRate: 0.2,
+  eggsPerAdultPerDay: 20
+};
+
+// helper: limit larvae by carrying capacity
+function larvalCapacity(){
+  return Math.max(10, state.sites * state.capPerSite);
+}
+
+// stochastic-ish step (dt in days)
+function step(dt){
+  // eggs produced by adults
+  const eggsProduced = state.adults * params.eggsPerAdultPerDay * dt;
+  // eggs -> larvae
+  const eggsToLarv = state.eggs * (1 - Math.exp(-params.eggToLarvaRate*dt));
+  // larvae maturation and mortality
+  const cap = larvalCapacity();
+  // density-dependent survival: if larvae > cap, extra die
+  let larvSurvivalFactor = 1.0;
+  if(state.larvae > cap){ larvSurvivalFactor = cap / (state.larvae + 1e-9); }
+  const larvToPupa = state.larvae * (1 - Math.exp(-params.larvaToPupaRate*dt)) * larvSurvivalFactor;
+  const larvaeMort = state.larvae * state.larvaeMortPct * dt; // baseline
+  // pupae -> adults
+  const pupToAdult = state.pupae * (1 - Math.exp(-params.pupaToAdultRate*dt));
+  // adult mortality
+  const adultMort = state.adults * state.adultMortPct * dt;
+
+  // update compartments
+  state.eggs += eggsProduced - eggsToLarv;
+  state.larvae += eggsToLarv - larvToPupa - larvaeMort;
+  state.pupae += larvToPupa - pupToAdult;
+  state.adults += pupToAdult - adultMort;
+
+  // small stochastic events: rainfall creates new sites probabilistically
+  if(state.rainOn){
+    // every ~7 days on average, create a rainfall event dependent on intensity
+    const p_event = Math.min(0.6, state.rainIntensity/100);
+    if(Math.random() < p_event * dt){
+      const added = Math.max(1, Math.floor(state.rainIntensity * (0.4 + Math.random()*0.8)));
+      state.sites += added;
+    }
+  }
+
+  // clamp
+  state.eggs = Math.max(0, state.eggs);
+  state.larvae = Math.max(0, state.larvae);
+  state.pupae = Math.max(0, state.pupae);
+  state.adults = Math.max(0, state.adults);
+
+  state.t += dt;
+  // record for history
+  state.history.push({t: state.t, eggs: Math.round(state.eggs), larvae: Math.round(state.larvae), pupae: Math.round(state.pupae), adults: Math.round(state.adults), sites: state.sites});
+  if(state.history.length > 10000) state.history.shift();
+}
+
+// drawing the simple line chart for adults
+function drawChart(){
+  ctx.clearRect(0,0,chart.width,chart.height);
+  // background grid
+  ctx.fillStyle = 'rgba(255,255,255,0.02)'; ctx.fillRect(0,0,chart.width,chart.height);
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 1;
+  for(let i=0;i<4;i++){ ctx.beginPath(); ctx.moveTo(0, i*(chart.height/4)); ctx.lineTo(chart.width, i*(chart.height/4)); ctx.stroke(); }
+
+  if(state.history.length < 2) return;
+  const data = state.history.slice(-200); // last points
+  const maxA = Math.max(...data.map(d=>d.adults), 10);
+  const minT = data[0].t; const maxT = data[data.length-1].t;
+  function x(t){ return ((t - minT) / Math.max(1e-6, (maxT - minT))) * chart.width; }
+  function y(v){ return chart.height - (v / Math.max(1, maxA)) * chart.height; }
+
+  // adults line
+  ctx.beginPath(); ctx.lineWidth = 2.5; ctx.strokeStyle = '#7c3aed';
+  data.forEach((d,i)=>{ const xx = x(d.t); const yy = y(d.adults); if(i===0) ctx.moveTo(xx,yy); else ctx.lineTo(xx,yy); }); ctx.stroke();
+  // larvae line
+  ctx.beginPath(); ctx.lineWidth = 1.8; ctx.strokeStyle = '#16a34a';
+  data.forEach((d,i)=>{ const xx = x(d.t); const yy = y(d.larvae*(0.6)); if(i===0) ctx.moveTo(xx,yy); else ctx.lineTo(xx,yy); }); ctx.stroke();
+
+  // labels
+  ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = '12px Inter'; ctx.fillText('Adults (purple) — Larvae (green, scaled)', 8, 14);
+}
+
+// animation
+let lastAnimation = performance.now();
+function animate(now){
+  const dt = Math.min(0.5, (now - lastAnimation)/1000); // seconds -> days fraction
+  lastAnimation = now;
+  if(state.running){
+    // simulate at 1 day step but allow substeps depending on dt
+    const dayStep = 0.5; // simulate up to 0.5 day per frame
+    let rem = dt; // in days
+    // convert seconds to days approx: dt is seconds; want days: dt / (60*60*24)
+    const dtDays = dt / (60*60*24);
+    // to make simulation progress visibly, scale time: 1 second real = 0.5 day sim
+    const simDt = Math.min(0.5, dt*0.5); // in days (fast-forward factor)
+    step(simDt);
+    updateBars(); drawChart();
+  }
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+
+// small starter history
+for(let i=0;i<6;i++){ state.history.push({t:i, eggs:state.eggs, larvae:state.larvae, pupae:state.pupae, adults:state.adults, sites:state.sites}); }
+updateBars(); drawChart();
+
+</script>
+</body>
+</html>

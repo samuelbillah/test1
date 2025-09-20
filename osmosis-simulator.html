@@ -1,0 +1,282 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Osmosis Simulator — Simple</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; margin: 18px; }
+    .controls { display:flex; gap:18px; flex-wrap:wrap; margin-bottom:12px; }
+    .ctrl { border:1px solid #ddd; padding:10px; border-radius:8px; min-width:200px; }
+    label { display:block; font-weight:600; margin-bottom:6px; font-size:13px; }
+    input[type="range"] { width:100%; }
+    .canvasRow { display:flex; gap:18px; align-items:flex-start; }
+    #visual { border:1px solid #ddd; width:480px; height:320px; border-radius:6px; background:#f8fafd; }
+    #chartContainer { flex:1; min-width:320px; }
+    .buttons { margin-top:8px; }
+    .stat { margin-top:6px; font-size:14px; }
+    button { padding:8px 12px; margin-right:8px; }
+    .small { font-size:12px; color:#555; }
+  </style>
+</head>
+<body>
+  <h2>Osmosis Simulator (simple model)</h2>
+  <p class="small">Solute cannot cross the membrane. Water flux ∝ (C_out − C_in) · k. Play with sliders then press Start.</p>
+
+  <div class="controls">
+    <div class="ctrl">
+      <label>Inside solute concentration (C<sub>in</sub>) — mol/L: <span id="cinVal">0.2</span></label>
+      <input id="cin" type="range" min="0" max="2" step="0.01" value="0.2">
+      <label>Outside solute concentration (C<sub>out</sub>) — mol/L: <span id="coutVal">1.0</span></label>
+      <input id="cout" type="range" min="0" max="2" step="0.01" value="1.0">
+    </div>
+
+    <div class="ctrl">
+      <label>Membrane permeability k (relative): <span id="kVal">0.5</span></label>
+      <input id="k" type="range" min="0.05" max="2" step="0.01" value="0.5">
+      <label>Initial inside volume (mL): <span id="vinVal">10</span></label>
+      <input id="vin" type="range" min="1" max="50" step="1" value="10">
+      <label>Initial outside volume (mL): <span id="voutVal">20</span></label>
+      <input id="vout" type="range" min="1" max="100" step="1" value="20">
+    </div>
+
+    <div class="ctrl">
+      <label>Simulation speed (dt seconds per step): <span id="dtVal">0.5</span>s</label>
+      <input id="dt" type="range" min="0.01" max="1" step="0.01" value="0.5">
+      <div class="buttons">
+        <button id="startBtn">Start</button>
+        <button id="pauseBtn">Pause</button>
+        <button id="resetBtn">Reset</button>
+      </div>
+      <div class="stat">Time: <span id="time">0.0</span> s</div>
+    </div>
+  </div>
+
+  <div class="canvasRow">
+    <canvas id="visual" width="480" height="320"></canvas>
+    <div id="chartContainer">
+      <canvas id="chartCanvas"></canvas>
+    </div>
+  </div>
+
+  <div style="margin-top:10px;">
+    <strong>Readouts:</strong>
+    <div class="stat">Inside volume: <span id="vinRead">10.00</span> mL</div>
+    <div class="stat">Outside volume: <span id="voutRead">20.00</span> mL</div>
+    <div class="stat">Inside concentration: <span id="cinRead">0.20</span> mol/L</div>
+    <div class="stat">Outside concentration: <span id="coutRead">1.00</span> mol/L</div>
+  </div>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+(() => {
+  // DOM elements
+  const cinSlider = document.getElementById('cin'), coutSlider = document.getElementById('cout');
+  const kSlider = document.getElementById('k'), vinSlider = document.getElementById('vin'), voutSlider = document.getElementById('vout');
+  const dtSlider = document.getElementById('dt');
+  const startBtn = document.getElementById('startBtn'), pauseBtn = document.getElementById('pauseBtn'), resetBtn = document.getElementById('resetBtn');
+
+  const cinVal = document.getElementById('cinVal'), coutVal = document.getElementById('coutVal'), kVal = document.getElementById('kVal');
+  const vinVal = document.getElementById('vinVal'), voutVal = document.getElementById('voutVal'), dtVal = document.getElementById('dtVal');
+  const timeRead = document.getElementById('time');
+
+  const vinRead = document.getElementById('vinRead'), voutRead = document.getElementById('voutRead');
+  const cinRead = document.getElementById('cinRead'), coutRead = document.getElementById('coutRead');
+
+  // Canvas visual
+  const canvas = document.getElementById('visual'), ctx = canvas.getContext('2d');
+
+  // Chart setup
+  const chartCtx = document.getElementById('chartCanvas').getContext('2d');
+  const chart = new Chart(chartCtx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        { label: 'Inside volume (mL)', data: [], fill:false, borderWidth:2 },
+        { label: 'Outside volume (mL)', data: [], fill:false, borderWidth:2 }
+      ]
+    },
+    options: { animation:false, scales:{ x:{ title:{display:true, text:'Time (s)'}}, y:{ title:{display:true, text:'Volume (mL)'} } } }
+  });
+
+  // State variables
+  let state = {
+    time: 0,
+    dt: parseFloat(dtSlider.value),
+    k: parseFloat(kSlider.value),
+    // We'll treat concentration sliders as initial solute amounts computed from concentration * volume
+    cin: parseFloat(cinSlider.value),
+    cout: parseFloat(coutSlider.value),
+    vin: parseFloat(vinSlider.value),
+    vout: parseFloat(voutSlider.value),
+    solute_in: parseFloat(cinSlider.value) * parseFloat(vinSlider.value) / 1000,   // mol (convert mL -> L)
+    solute_out: parseFloat(coutSlider.value) * parseFloat(voutSlider.value) / 1000,
+    running: false
+  };
+
+  // helpers to update UI labels
+  function updateSlidersUI(){
+    cinVal.textContent = cinSlider.value;
+    coutVal.textContent = coutSlider.value;
+    kVal.textContent = kSlider.value;
+    vinVal.textContent = vinSlider.value;
+    voutVal.textContent = voutSlider.value;
+    dtVal.textContent = dtSlider.value;
+  }
+  updateSlidersUI();
+
+  // attach slider change handlers (only allowed before start or we recalc solute amounts intentionally)
+  cinSlider.addEventListener('input', () => { updateSlidersUI(); if(!state.running){ state.cin = parseFloat(cinSlider.value); state.solute_in = state.cin * state.vin / 1000; updateReadouts(); }});
+  coutSlider.addEventListener('input', () => { updateSlidersUI(); if(!state.running){ state.cout = parseFloat(coutSlider.value); state.solute_out = state.cout * state.vout / 1000; updateReadouts(); }});
+  kSlider.addEventListener('input', () => { updateSlidersUI(); state.k = parseFloat(kSlider.value); });
+  vinSlider.addEventListener('input', () => { updateSlidersUI(); if(!state.running){ state.vin = parseFloat(vinSlider.value); state.solute_in = state.cin * state.vin / 1000; updateReadouts(); }});
+  voutSlider.addEventListener('input', () => { updateSlidersUI(); if(!state.running){ state.vout = parseFloat(voutSlider.value); state.solute_out = state.cout * state.vout / 1000; updateReadouts(); }});
+  dtSlider.addEventListener('input', () => { updateSlidersUI(); state.dt = parseFloat(dtSlider.value); });
+
+  function resetSimulation(){
+    chart.data.labels = [];
+    chart.data.datasets[0].data = [];
+    chart.data.datasets[1].data = [];
+    chart.update();
+
+    state.time = 0;
+    state.dt = parseFloat(dtSlider.value);
+    state.k = parseFloat(kSlider.value);
+
+    state.cin = parseFloat(cinSlider.value);
+    state.cout = parseFloat(coutSlider.value);
+    state.vin = parseFloat(vinSlider.value);
+    state.vout = parseFloat(voutSlider.value);
+
+    // solute amounts (mol) — concentration sliders are mol/L, volumes are mL -> convert
+    state.solute_in = state.cin * state.vin / 1000;
+    state.solute_out = state.cout * state.vout / 1000;
+
+    state.running = false;
+    updateReadouts();
+    drawVisual();
+  }
+
+  function updateReadouts(){
+    vinRead.textContent = state.vin.toFixed(2);
+    voutRead.textContent = state.vout.toFixed(2);
+    // concentrations (mol/L) = solute (mol) / volume (L)
+    const cin_now = state.vin > 0 ? state.solute_in / (state.vin / 1000) : 0;
+    const cout_now = state.vout > 0 ? state.solute_out / (state.vout / 1000) : 0;
+    cinRead.textContent = cin_now.toFixed(3);
+    coutRead.textContent = cout_now.toFixed(3);
+    timeRead.textContent = state.time.toFixed(2);
+  }
+
+  function drawVisual(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const w = canvas.width, h = canvas.height;
+    const pad = 24;
+    const tankW = (w - pad * 3) / 2;
+    const tankH = h - pad * 2;
+
+    // scale volumes to heights (we map some max volume to full tank height)
+    const maxVol = Math.max(parseFloat(vinSlider.max), parseFloat(voutSlider.max));
+    const top = pad;
+    // left tank (inside)
+    const leftX = pad, rightX = pad + tankW;
+    const leftFillH = Math.min(1, state.vin / maxVol) * tankH;
+    const leftY = pad + (tankH - leftFillH);
+    // right tank (outside)
+    const rX = pad*2 + tankW, rW = tankW;
+    const rightFillH = Math.min(1, state.vout / maxVol) * tankH;
+    const rightY = pad + (tankH - rightFillH);
+
+    // draw tanks
+    ctx.strokeStyle = "#666";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(leftX, pad, tankW, tankH);
+    ctx.strokeRect(rX, pad, rW, tankH);
+
+    // draw water levels
+    ctx.fillStyle = "rgba(50,120,210,0.25)";
+    ctx.fillRect(leftX, leftY, tankW, leftFillH);
+    ctx.fillRect(rX, rightY, rW, rightFillH);
+
+    // draw membrane as line between tanks (middle)
+    const mX = pad + tankW + pad/2;
+    ctx.beginPath();
+    ctx.moveTo(mX, pad+10);
+    ctx.lineTo(mX, pad + tankH - 10);
+    ctx.strokeStyle = "#b33";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // labels
+    ctx.fillStyle = "#222"; ctx.font = "14px system-ui";
+    ctx.fillText("Inside", leftX + 8, pad+14);
+    ctx.fillText("Outside", rX + 8, pad+14);
+
+    // show concentrations
+    const cin_now = state.vin > 0 ? state.solute_in / (state.vin/1000) : 0;
+    const cout_now = state.vout > 0 ? state.solute_out / (state.vout/1000) : 0;
+    ctx.fillText("C_in = " + cin_now.toFixed(3) + " mol/L", leftX+8, pad + tankH + 18);
+    ctx.fillText("C_out = " + cout_now.toFixed(3) + " mol/L", rX+8, pad + tankH + 18);
+  }
+
+  // simulation step
+  function step(){
+    // compute concentrations (mol/L)
+    const Cin = state.vin > 0 ? state.solute_in / (state.vin / 1000) : 0;
+    const Cout = state.vout > 0 ? state.solute_out / (state.vout / 1000) : 0;
+
+    // flux (mL per second) — proportional to concentration difference and k
+    // Convert concentration difference (mol/L) into water movement scale (simple)
+    const diff = Cout - Cin;
+    const k = state.k;
+    // Use a scaling factor so that numbers are reasonable (user can tune k)
+    const scale = 5.0; // empirical scale for visible movement
+    const flux = k * diff * scale * state.dt; // mL change per step
+
+    // Update volumes (water only)
+    state.vin += flux;
+    state.vout -= flux;
+
+    // Prevent negative volumes
+    if(state.vout < 0){ state.vin += state.vout; state.vout = 0; }
+    if(state.vin < 0){ state.vout += state.vin; state.vin = 0; }
+
+    // solute amounts unchanged (semi-permeable)
+    // time advance
+    state.time += state.dt;
+
+    // record for chart
+    chart.data.labels.push(state.time.toFixed(2));
+    chart.data.datasets[0].data.push(state.vin);
+    chart.data.datasets[1].data.push(state.vout);
+    if(chart.data.labels.length > 500){ chart.data.labels.shift(); chart.data.datasets[0].data.shift(); chart.data.datasets[1].data.shift(); }
+    chart.update();
+
+    updateReadouts();
+    drawVisual();
+  }
+
+  let loop = null;
+  function startLoop(){
+    if(state.running) return;
+    state.running = true;
+    loop = setInterval(step, Math.max(10, state.dt * 1000)); // run step every dt seconds (approx)
+  }
+  function pauseLoop(){
+    state.running = false;
+    if(loop){ clearInterval(loop); loop = null; }
+  }
+
+  // Buttons
+  startBtn.addEventListener('click', () => { startLoop(); });
+  pauseBtn.addEventListener('click', () => { pauseLoop(); });
+  resetBtn.addEventListener('click', () => { pauseLoop(); resetSimulation(); });
+
+  // init
+  resetSimulation();
+})();
+</script>
+</body>
+</html>
